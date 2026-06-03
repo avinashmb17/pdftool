@@ -1,7 +1,7 @@
 import streamlit as st
 from pypdf import PdfReader, PdfWriter
 import io
-import os
+import zipfile
 
 st.set_page_config(page_title="PDF Merge & Split Tool", layout="wide")
 
@@ -22,12 +22,12 @@ st.radio(
 )
 
 # =========================================================
-# MERGE MODE
+# MERGE MODE (FULL CONTROL)
 # =========================================================
 if st.session_state.mode == "merge":
 
-   # st.subheader("🔀 Merge PDFs (Page-wise control)")
-    st.subheader(" Merge PDFs (Page-wise control)")
+    st.subheader("🔀 Merge PDFs (Reorder Pages)")
+
     uploaded_files = st.file_uploader(
         "Upload PDF files",
         type=["pdf"],
@@ -45,49 +45,87 @@ if st.session_state.mode == "merge":
 
                 for i in range(len(reader.pages)):
                     st.session_state.pages.append(
-                        (file.name, file_bytes, i)
+                        {
+                            "name": file.name,
+                            "bytes": file_bytes,
+                            "page": i
+                        }
                     )
 
             st.success("Pages loaded successfully!")
 
-    # SHOW PAGES
-    st.write("### Pages Order")
+    # ---------------- SHOW PAGES ----------------
+    st.write("### Current Page Order")
 
-    for idx, (fname, _, page_num) in enumerate(st.session_state.pages):
-        st.write(f"{idx+1}. {fname} - Page {page_num+1}")
+    if st.session_state.pages:
 
-    col1, col2 = st.columns(2)
+        page_labels = [
+            f"{i+1}. {p['name']} - Page {p['page']+1}"
+            for i, p in enumerate(st.session_state.pages)
+        ]
 
-    with col1:
-        if st.button("Move Last Up"):
-            if len(st.session_state.pages) > 1:
-                i = len(st.session_state.pages) - 1
-                st.session_state.pages[i-1], st.session_state.pages[i] = (
-                    st.session_state.pages[i],
-                    st.session_state.pages[i-1]
-                )
+        st.dataframe(page_labels, use_container_width=True)
 
-    with col2:
-        if st.button("Move First Down"):
-            if len(st.session_state.pages) > 1:
-                i = 0
-                st.session_state.pages[i], st.session_state.pages[i+1] = (
-                    st.session_state.pages[i+1],
-                    st.session_state.pages[i]
-                )
+        # ---------------- SELECT PAGE ----------------
+        selected_index = st.selectbox(
+            "Select page to move",
+            list(range(len(st.session_state.pages))),
+            format_func=lambda i: page_labels[i]
+        )
 
-    # MERGE PDF
+        col1, col2, col3 = st.columns(3)
+
+        # MOVE UP
+        with col1:
+            if st.button("⬆ Move Up"):
+                i = selected_index
+                if i > 0:
+                    st.session_state.pages[i], st.session_state.pages[i - 1] = (
+                        st.session_state.pages[i - 1],
+                        st.session_state.pages[i]
+                    )
+                    st.rerun()
+
+        # MOVE DOWN
+        with col2:
+            if st.button("⬇ Move Down"):
+                i = selected_index
+                if i < len(st.session_state.pages) - 1:
+                    st.session_state.pages[i], st.session_state.pages[i + 1] = (
+                        st.session_state.pages[i + 1],
+                        st.session_state.pages[i]
+                    )
+                    st.rerun()
+
+        # MOVE TO POSITION
+        with col3:
+            new_pos = st.number_input(
+                "Move to position",
+                min_value=1,
+                max_value=len(st.session_state.pages),
+                value=selected_index + 1
+            )
+
+            if st.button("📍 Move to Position"):
+                i = selected_index
+                item = st.session_state.pages.pop(i)
+                st.session_state.pages.insert(new_pos - 1, item)
+                st.rerun()
+
+    else:
+        st.info("Upload PDFs and click 'Load Pages'")
+
+    # ---------------- MERGE PDF ----------------
     if st.button("Merge PDFs"):
+
         if not st.session_state.pages:
             st.warning("No pages selected.")
         else:
             writer = PdfWriter()
 
-            for fname, file_bytes, page_num in st.session_state.pages:
-                reader = PdfReader(io.BytesIO(file_bytes))
-
-                if page_num < len(reader.pages):
-                    writer.add_page(reader.pages[page_num])
+            for p in st.session_state.pages:
+                reader = PdfReader(io.BytesIO(p["bytes"]))
+                writer.add_page(reader.pages[p["page"]])
 
             output = io.BytesIO()
             writer.write(output)
@@ -103,45 +141,55 @@ if st.session_state.mode == "merge":
             )
 
 # =========================================================
-# SPLIT MODE (FIXED + STABLE)
+# SPLIT MODE (ZIP DOWNLOAD)
 # =========================================================
 else:
 
-    #st.subheader("✂️ Split PDF (Upload + Save to Folder)")
-    st.subheader(" Split PDF (Upload + Save to Folder)")
-    uploaded_file = st.file_uploader("Choose PDF file to split", type=["pdf"])
+    st.subheader("✂️ Split PDF (Download as ZIP)")
 
-    output_dir = st.text_input(
-        "Enter output folder path (must already exist)"
-        #placeholder="C:/Users/YourName/Desktop/output"
+    uploaded_file = st.file_uploader(
+        "Choose PDF file to split",
+        type=["pdf"]
     )
 
     if st.button("Split PDF"):
 
         if uploaded_file is None:
             st.error("Please upload a PDF file.")
-        elif not output_dir:
-            st.error("Please enter output folder path.")
         else:
             try:
-                if not os.path.exists(output_dir):
-                    st.error("Output folder does not exist.")
-                else:
-                    file_bytes = uploaded_file.getvalue()
-                    reader = PdfReader(io.BytesIO(file_bytes))
+                file_bytes = uploaded_file.getvalue()
+                reader = PdfReader(io.BytesIO(file_bytes))
 
-                    st.write(f"Total pages: {len(reader.pages)}")
+                st.write(f"Total pages: {len(reader.pages)}")
+
+                zip_buffer = io.BytesIO()
+
+                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
 
                     for i, page in enumerate(reader.pages):
                         writer = PdfWriter()
                         writer.add_page(page)
 
-                        output_path = os.path.join(output_dir, f"page_{i+1}.pdf")
+                        pdf_buffer = io.BytesIO()
+                        writer.write(pdf_buffer)
+                        pdf_buffer.seek(0)
 
-                        with open(output_path, "wb") as f:
-                            writer.write(f)
+                        zip_file.writestr(
+                            f"page_{i+1}.pdf",
+                            pdf_buffer.read()
+                        )
 
-                    st.success(f"Split completed successfully! Saved in:\n{output_dir}")
+                zip_buffer.seek(0)
+
+                st.success("PDF split successfully!")
+
+                st.download_button(
+                    "Download Split PDFs (ZIP)",
+                    data=zip_buffer,
+                    file_name="split_pages.zip",
+                    mime="application/zip"
+                )
 
             except Exception as e:
                 st.error(f"Error: {str(e)}")
