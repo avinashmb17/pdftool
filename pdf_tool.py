@@ -26,7 +26,8 @@ st.radio(
 # =========================================================
 if st.session_state.mode == "merge":
 
-    st.subheader("🔀 Merge PDFs (Reorder Pages)")
+    #st.subheader("🔀 Merge PDFs (Reorder Pages)")
+    st.subheader(" Merge PDFs (Reorder Pages)")
 
     uploaded_files = st.file_uploader(
         "Upload PDF files",
@@ -106,7 +107,8 @@ if st.session_state.mode == "merge":
                 value=selected_index + 1
             )
 
-            if st.button("📍 Move to Position"):
+            #if st.button("📍 Move to Position"):
+            if st.button(" Move to Position"):
                 i = selected_index
                 item = st.session_state.pages.pop(i)
                 st.session_state.pages.insert(new_pos - 1, item)
@@ -145,8 +147,8 @@ if st.session_state.mode == "merge":
 # =========================================================
 else:
 
-    st.subheader("✂️ Split PDF (Download as ZIP)")
-
+    #st.subheader("✂️ Split PDF (Download as ZIP)")
+    st.subheader(" Split PDF (Download as ZIP)")
     uploaded_file = st.file_uploader(
         "Choose PDF file to split",
         type=["pdf"]
